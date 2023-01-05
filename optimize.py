@@ -1,151 +1,197 @@
 import pandas as pd
+import numpy as np
 from loguru import logger
 from pulp import LpVariable, LpProblem, LpMinimize
 
-X = 1000000
-M = 500000
-B = 200000
-R = 6 / 106
-exit = True
-prob = LpProblem('Bonus Problem', LpMinimize)
+
+class Calculator:
+    def __init__(self, m, r):
+        self.M = m
+        self.R = r
+
+    def cal_y1(self, x):
+        M = self.M
+        if x + M <= 0: return 0
+        if 0 < x + M <= 36000: return (x + M) * 3 / 100
+        if 36000 < x + M <= 144000: return (x + M) * 10 / 100 - 2520
+        if 144000 < x + M <= 300000: return (x + M) * 20 / 100 - 16920
+        if 300000 < x + M <= 420000: return (x + M) * 25 / 100 - 31920
+        if 420000 < x + M <= 660000: return (x + M) * 30 / 100 - 52920
+        if 660000 < x + M <= 960000: return (x + M) * 35 / 100 - 85920
+        return (x + M) * 45 / 100 - 181920
+
+    @staticmethod
+    def cal_y2(x):
+        if x <= 0: return 0
+        if 0 < x <= 36000: return x * 3 / 100
+        if 36000 < x <= 144000: return x * 10 / 100 - 210
+        if 144000 < x <= 300000: return x * 20 / 100 - 1410
+        if 300000 < x <= 420000: return x * 25 / 100 - 2660
+        if 420000 < x <= 660000: return x * 30 / 100 - 4410
+        if 660000 < x <= 960000: return x * 35 / 100 - 7160
+        return x * 45 / 100 - 15160
+
+    @staticmethod
+    def cal_y3(x):
+        if x <= 0: return 0
+        if 0 < x <= 36000: return x * 3 / 100
+        if 36000 < x <= 144000: return x * 10 / 100 - 2520
+        if 144000 < x <= 300000: return x * 20 / 100 - 16920
+        if 300000 < x <= 420000: return x * 25 / 100 - 31920
+        if 420000 < x <= 660000: return x * 30 / 100 - 52920
+        if 660000 < x <= 960000: return x * 35 / 100 - 85920
+        return x * 45 / 100 - 181920
+
+    def cal_y4(self, x):
+        return x * self.R
 
 
-def cond_y1(prob):
-    LARGE = 1e9
-    cond_num = 7
-    b = [-M, 36000 - M, 144000 - M, 300000 - M, 420000 - M, 660000 - M, 960000 - M, LARGE - M]
-    f_b = [
-        (b[0] + M) * 0,
-        (b[1] + M) * 3 / 100,
-        (b[2] + M) * 10 / 100 - 2520,
-        (b[3] + M) * 20 / 100 - 16920,
-        (b[4] + M) * 25 / 100 - 31920,
-        (b[5] + M) * 30 / 100 - 52920,
-        (b[6] + M) * 35 / 100 - 85920,
-        (b[7] + M) * 45 / 100 - 181920,
-    ]
+class Optimizer:
+    def __init__(self, x, m, b, r, exit):
+        self.cal = Calculator(m, r)
+        self.X = x
+        self.B = b
+        self.exit = exit
+        self.prob = None
 
-    w = [LpVariable(f'w1_{i}', ) for i in range(1, cond_num + 1 + 1)]
-    z = [LpVariable(f'z1_{i}', cat='Binary') for i in range(1, cond_num + 1)]
+    def cond_y1(self):
+        LARGE = 1e9
+        cond_num = 7
+        b = [-M, 36000 - M, 144000 - M, 300000 - M, 420000 - M, 660000 - M, 960000 - M, LARGE - M]
+        f_b = [self.cal.cal_y1(bi) for bi in b]
 
-    prob += (w[0] <= z[0])
-    for i in range(1, cond_num):
-        prob += (w[i] <= z[i - 1] + z[i])
-    prob += (w[-1] <= z[-1])
+        w = [LpVariable(f'w1_{i}', ) for i in range(1, cond_num + 1 + 1)]
+        z = [LpVariable(f'z1_{i}', cat='Binary') for i in range(1, cond_num + 1)]
 
-    for w_i in w: prob += (w_i >= 0)
+        self.prob += (w[0] <= z[0])
+        for i in range(1, cond_num):
+            self.prob += (w[i] <= z[i - 1] + z[i])
+        self.prob += (w[-1] <= z[-1])
 
-    prob += (sum(w) == 1)
-    prob += (sum(z) == 1)
+        for w_i in w: self.prob += (w_i >= 0)
 
-    x1 = sum([b[i] * w[i] for i in range(cond_num)])
-    y1 = sum([f_b[i] * w[i] for i in range(cond_num + 1)])
+        self.prob += (sum(w) == 1)
+        self.prob += (sum(z) == 1)
 
-    prob += (x1 >= 0)
-    return x1, y1, prob
+        x1 = np.dot(b, w)
+        y1 = np.dot(f_b, w)
 
+        self.prob += (x1 >= 0)
+        return x1, y1
 
-def cond_y2(prob):
-    LARGE = 1e9
-    cond_num = 7
-    b = [0, 36000, 144000, 300000, 420000, 660000, 960000, LARGE]
-    f_b = [
-        b[0] * 0,
-        b[1] * 3 / 100,
-        b[2] * 10 / 100 - 210,
-        b[3] * 20 / 100 - 1410,
-        b[4] * 25 / 100 - 2660,
-        b[5] * 30 / 100 - 4410,
-        b[6] * 35 / 100 - 7160,
-        b[7] * 45 / 100 - 15160,
-    ]
-
-    w = [LpVariable(f'w2_{i}', ) for i in range(1, cond_num + 1 + 1)]
-    z = [LpVariable(f'z2_{i}', cat='Binary') for i in range(1, cond_num + 1)]
-
-    prob += (w[0] <= z[0])
-    for i in range(1, cond_num):
-        prob += (w[i] <= z[i - 1] + z[i])
-    prob += (w[-1] <= z[-1])
-
-    for w_i in w: prob += (w_i >= 0)
-
-    prob += (sum(w) == 1)
-    prob += (sum(z) == 1)
-
-    x2 = sum([b[i] * w[i] for i in range(cond_num)])
-    y2 = sum([f_b[i] * w[i] for i in range(cond_num + 1)])
-
-    prob += (x2 >= 0)
-    return x2, y2, prob
-
-
-def cond_y3(prob, exit=False):
-    if exit:
+    def cond_y2(self):
         LARGE = 1e9
         cond_num = 7
         b = [0, 36000, 144000, 300000, 420000, 660000, 960000, LARGE]
-        f_b = [
-            b[0] * 0,
-            b[1] * 3 / 100,
-            b[2] * 10 / 100 - 2520,
-            b[3] * 20 / 100 - 16920,
-            b[4] * 25 / 100 - 31920,
-            b[5] * 30 / 100 - 52920,
-            b[6] * 35 / 100 - 85920,
-            b[7] * 45 / 100 - 181920,
-        ]
+        f_b = [self.cal.cal_y2(bi) for bi in b]
 
-        w = [LpVariable(f'w3_{i}', ) for i in range(1, cond_num + 1 + 1)]
-        z = [LpVariable(f'z3_{i}', cat='Binary') for i in range(1, cond_num + 1)]
+        w = [LpVariable(f'w2_{i}', ) for i in range(1, cond_num + 1 + 1)]
+        z = [LpVariable(f'z2_{i}', cat='Binary') for i in range(1, cond_num + 1)]
 
-        prob += (w[0] <= z[0])
+        self.prob += (w[0] <= z[0])
         for i in range(1, cond_num):
-            prob += (w[i] <= z[i - 1] + z[i])
-        prob += (w[-1] <= z[-1])
+            self.prob += (w[i] <= z[i - 1] + z[i])
+        self.prob += (w[-1] <= z[-1])
 
-        for w_i in w: prob += (w_i >= 0)
+        for w_i in w: self.prob += (w_i >= 0)
 
-        prob += (sum(w) == 1)
-        prob += (sum(z) == 1)
+        self.prob += (sum(w) == 1)
+        self.prob += (sum(z) == 1)
+        x2 = np.dot(b, w)
+        y2 = np.dot(f_b, w)
 
-        x3 = sum([b[i] * w[i] for i in range(cond_num)])
-        y3 = sum([f_b[i] * w[i] for i in range(cond_num + 1)])
-    else:
-        x3 = LpVariable(f'x3')
-        y3 = 0.0 * x3
-        prob += (x3 == 0)
-    prob += (x3 >= 0)
-    return x3, y3, prob
+        self.prob += (x2 >= 0)
+        return x2, y2
+
+    def cond_y2_2(self, in_range: int):
+        LARGE = 1e9
+        b = [0, 36000, 144000, 300000, 420000, 660000, 960000, LARGE]
+        range_list = [[b[i], b[i + 1]] for i in range(len(b) - 1)]
+        x2 = LpVariable(f'x2')
+        left, right = range_list[in_range - 1]
+        if in_range == 1:
+            y2 = x2 * 3 / 100
+        elif in_range == 2:
+            y2 = x2 * 10 / 100 - 210
+        elif in_range == 3:
+            y2 = x2 * 20 / 100 - 1410
+        elif in_range == 4:
+            y2 = x2 * 25 / 100 - 2660
+        elif in_range == 5:
+            y2 = x2 * 30 / 100 - 4410
+        elif in_range == 6:
+            y2 = x2 * 35 / 100 - 7160
+        else:
+            y2 = x2 * 45 / 100 - 15160
+        self.prob += (left + 0.01 <= x2)
+        self.prob += (x2 <= right)
+        return x2, y2
+
+    def cond_y3(self):
+        if self.exit:
+            LARGE = 1e9
+            cond_num = 7
+            b = [0, 36000, 144000, 300000, 420000, 660000, 960000, LARGE]
+            f_b = [self.cal.cal_y3(bi) for bi in b]
+
+            w = [LpVariable(f'w3_{i}', ) for i in range(1, cond_num + 1 + 1)]
+            z = [LpVariable(f'z3_{i}', cat='Binary') for i in range(1, cond_num + 1)]
+
+            self.prob += (w[0] <= z[0])
+            for i in range(1, cond_num):
+                self.prob += (w[i] <= z[i - 1] + z[i])
+            self.prob += (w[-1] <= z[-1])
+
+            for w_i in w: self.prob += (w_i >= 0)
+
+            self.prob += (sum(w) == 1)
+            self.prob += (sum(z) == 1)
+
+            x3 = np.dot(b, w)
+            y3 = np.dot(f_b, w)
+        else:
+            x3 = LpVariable(f'x3')
+            y3 = 0.0 * x3
+            self.prob += (x3 == 0)
+        self.prob += (x3 >= 0)
+        return x3, y3
+
+    def cond_y4(self):
+        x4 = LpVariable('x4')
+        y4 = self.cal.cal_y4(x4)
+        self.prob += (x4 >= 0)
+        self.prob += (x4 <= self.B)
+        return x4, y4
+
+    def run(self):
+        res_list = []
+        for x2_in_range in range(0, 7):
+            # 初始化问题
+            self.prob = LpProblem('Bonus Problem', LpMinimize)
+            x1, y1 = self.cond_y1()
+            x2, y2 = self.cond_y2_2(x2_in_range + 1)
+            x3, y3 = self.cond_y3()
+            x4, y4 = self.cond_y4()
+            self.prob += (x1 + x2 + x3 + x4 == X)
+            self.prob += y1 + y2 + y3 + y4
+
+            self.prob.solve()
+
+            sub_df = pd.DataFrame([
+                [X, x1.value(), x2.value(), x3.value(), x4.value(),
+                 y1.value(), y2.value(), y3.value(), y4.value(), self.prob.objective.value()]
+            ], columns=['X', 'X1工资', 'X2年终奖', 'X3离职补偿', 'X4通道', 'Y1', 'Y2', 'Y3', 'Y4', 'Y总税负']).round(2)
+            res_list.append(sub_df)
+        df = pd.concat(res_list)
+        df = df.sort_values('Y总税负').reset_index(drop=True)
+        return df.iloc[0]
 
 
-def cond_y4(prob):
-    x4 = LpVariable('x4')
-    y4 = x4 * R
-    prob += (x4 >= 0)
-    prob += (x4 <= B)
-    return x4, y4, prob
-
-
-x1, y1, prob = cond_y1(prob)
-x2, y2, prob = cond_y2(prob)
-x3, y3, prob = cond_y3(prob, exit=exit)
-x4, y4, prob = cond_y4(prob)
-prob += (x1 + x2 + x3 + x4 == X)
-prob += y1 + y2 + y3 + y4
-
-prob.solve()
-
-df = pd.DataFrame([
-    [x1.value(), x2.value(), x3.value(), x4.value(), X],
-    [y1.value(), y2.value(), y3.value(), y4.value(), prob.objective.value()]
-], columns=['工资', '年终奖', '离职补偿', '通道', '合计'], index=['金额', '税负']).T.round(2)
-
-logger.info(f'输入参数：\n'
-            f'员工应发放的总金额 {X}\n'
-            f'员工基本工资薪金 {M}\n'
-            f'是否离职 {exit}\n'
-            f'通道上限 {B}\n'
-            f'通道税率 R=6/106')
-
-logger.info('\n' + df.to_string())
+if __name__ == '__main__':
+    X = 1000000
+    M = 500000
+    B = 200000
+    R = 6 / 106
+    exit = False
+    self = Optimizer(X, M, B, R, exit)
+    res = self.run()
