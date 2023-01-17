@@ -51,12 +51,14 @@ class Optimizer:
         self.cal = Calculator(m, r)
         self.X = x
         self.B = b
+        self.M = m
         self.exit = exit
         self.prob = None
 
     def cond_y1(self):
         LARGE = 1e9
         cond_num = 7
+        M = self.M
         b = [-M, 36000 - M, 144000 - M, 300000 - M, 420000 - M, 660000 - M, 960000 - M, LARGE - M]
         f_b = [self.cal.cal_y1(bi) for bi in b]
 
@@ -183,15 +185,42 @@ class Optimizer:
             ], columns=['X', 'X1工资', 'X2年终奖', 'X3离职补偿', 'X4通道', 'Y1', 'Y2', 'Y3', 'Y4', 'Y总税负']).round(2)
             res_list.append(sub_df)
         df = pd.concat(res_list)
+        for col in ['X1工资', 'X2年终奖', 'X3离职补偿', 'X4通道']:
+            df = df[df[col] >= 0]
         df = df.sort_values('Y总税负').reset_index(drop=True)
         return df.iloc[0]
 
 
+class DataReader:
+    def __init__(self):
+        self.data = self.read()
+
+    @staticmethod
+    def read():
+        df = pd.read_excel('/Users/zhouyuxuan/Downloads/年终奖拆分-20230110（test）.xlsx', dtype={'编号': str})
+        df.rename(columns={'年终奖': '总金额'}, inplace=True)
+        # df['总金额'] = df['年终奖'] + df['基本薪资M']
+        df['是否离职'] = df['是否离职'].apply(lambda x: True if x == '是' else False)
+        return df
+
+    def iter(self):
+        for _, s in self.data.iterrows():
+            num, X, M, exit, B = s['编号'], s['总金额'], s['基本薪资M'], s['是否离职'], s['通道上限（B）']
+            R = 6 / 106
+            yield num, X, M, B, R, exit
+
+
 if __name__ == '__main__':
-    X = 1000000
-    M = 500000
-    B = 200000
-    R = 6 / 106
-    exit = False
-    self = Optimizer(X, M, B, R, exit)
-    res = self.run()
+    dr = DataReader()
+    # X, M, B, R, exit = 23629.48, 7629.48, 0, 6 / 106, False
+    res_list = []
+    for num, X, M, B, R, exit in dr.iter():
+        # if num != '106':
+        #     continue
+        self = Optimizer(X, M, B, R, exit)
+        res = self.run()
+        res['编号'] = num
+        res_list.append(res)
+    df = pd.concat(res_list, axis=1).T
+    df_all = pd.merge(dr.data, df, on=['编号'])
+    df_all.to_excel('/Users/zhouyuxuan/Downloads/年终奖拆分-test结果.xlsx', index=False)
