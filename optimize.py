@@ -106,6 +106,7 @@ class Optimizer:
         return x2, y2
 
     def cond_y2_2(self, in_range: int):
+        # 税负函数y2是分段函数，但非连续、单调，会破坏问题的凸性，因此只能拆出来分段汇总局部最优解，然后再取局部最优解中的最优解
         LARGE = 1e9
         b = [0, 36000, 144000, 300000, 420000, 660000, 960000, LARGE]
         range_list = [[b[i], b[i + 1]] for i in range(len(b) - 1)]
@@ -199,24 +200,20 @@ class DataReader:
     def read():
         df = pd.read_excel('/Users/zhouyuxuan/Downloads/年终奖拆分-20230110（test）.xlsx', dtype={'编号': str})
         df.rename(columns={'年终奖': '总金额'}, inplace=True)
-        # df['总金额'] = df['年终奖'] + df['基本薪资M']
         df['是否离职'] = df['是否离职'].apply(lambda x: True if x == '是' else False)
         return df
 
     def iter(self):
         for _, s in self.data.iterrows():
             num, X, M, exit, B = s['编号'], s['总金额'], s['基本薪资M'], s['是否离职'], s['通道上限（B）']
-            R = 6 / 106
+            R = 10 / 106
             yield num, X, M, B, R, exit
 
 
 if __name__ == '__main__':
     dr = DataReader()
-    # X, M, B, R, exit = 23629.48, 7629.48, 0, 6 / 106, False
     res_list = []
     for num, X, M, B, R, exit in dr.iter():
-        # if num != '106':
-        #     continue
         self = Optimizer(X, M, B, R, exit)
         res = self.run()
         res['编号'] = num
