@@ -193,12 +193,12 @@ class Optimizer:
 
 
 class DataReader:
-    def __init__(self):
+    def __init__(self, path):
         self.data = self.read()
+        self.path = path
 
-    @staticmethod
-    def read():
-        df = pd.read_excel('/Users/zhouyuxuan/Downloads/年终奖拆分-20230110（test）.xlsx', dtype={'编号': str})
+    def read(self):
+        df = pd.read_excel(self.path, dtype={'编号': str}, sheet_name='输入')
         df.rename(columns={'年终奖': '总金额'}, inplace=True)
         df['是否离职'] = df['是否离职'].apply(lambda x: True if x == '是' else False)
         return df
@@ -206,12 +206,13 @@ class DataReader:
     def iter(self):
         for _, s in self.data.iterrows():
             num, X, M, exit, B = s['编号'], s['总金额'], s['基本薪资M'], s['是否离职'], s['通道上限（B）']
-            R = 10 / 106
+            R = 10 / 100
             yield num, X, M, B, R, exit
 
 
 if __name__ == '__main__':
-    dr = DataReader()
+    source_path = '/Users/zhouyuxuan/Downloads/20240131两入测算.xlsx'
+    dr = DataReader(source_path)
     res_list = []
     for num, X, M, B, R, exit in dr.iter():
         self = Optimizer(X, M, B, R, exit)
@@ -220,4 +221,9 @@ if __name__ == '__main__':
         res_list.append(res)
     df = pd.concat(res_list, axis=1).T
     df_all = pd.merge(dr.data, df, on=['编号'])
+    df_all['Y1_不做优化'] = df_all['基本薪资M'].apply(lambda x: Calculator(x, 0).cal_y1(0))
+    df_all['Y2_不做优化'] = df_all['X'].apply(lambda x: Calculator.cal_y2(x))
+    df_all['优化省税'] = df_all['Y1_不做优化'] + df_all['Y2_不做优化'] - df_all['Y总税负']
+    df_all['优化后年终奖交税'] = df_all['Y总税负'] - df_all['Y1_不做优化']
+    df_all['税后实发年终奖'] = df_all['X'] - df_all['优化后年终奖交税']
     df_all.to_excel('/Users/zhouyuxuan/Downloads/年终奖拆分-test结果.xlsx', index=False)
